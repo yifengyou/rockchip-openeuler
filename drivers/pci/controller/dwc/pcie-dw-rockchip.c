@@ -10,6 +10,8 @@
 
 #include <linux/clk.h>
 #include <linux/gpio/consumer.h>
+#include <linux/iopoll.h>
+#include <linux/aspm_ext.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqdomain.h>
 #include <linux/mfd/syscon.h>
@@ -35,6 +37,8 @@
 
 #define PCIE_CLIENT_RC_MODE		HIWORD_UPDATE_BIT(0x40)
 #define PCIE_CLIENT_ENABLE_LTSSM	HIWORD_UPDATE_BIT(0xc)
+#define PCIE_CLIENT_DISABLE_LTSSM	HIWORD_DISABLE_BIT(0xc)
+#define PCIE_LTSSM_APP_DLY2_EN		BIT(6)
 #define PCIE_SMLH_LINKUP		BIT(16)
 #define PCIE_RDLH_LINKUP		BIT(17)
 #define PCIE_LINKUP			(PCIE_SMLH_LINKUP | PCIE_RDLH_LINKUP)
@@ -359,6 +363,82 @@ disable_regulator:
 
 	return ret;
 }
+
+/*
+ * rockchip_dw_pcie_pm_ctrl_for_user - PCIe PM for bcmdhd WiFi driver.
+ * Performs PCIe controller LTSSM disable/enable cycle to re-establish
+ * the link after FLR. This mirrors the vendor BSP suspend/resume approach
+ * but in a simplified form suitable for the mainline DW PCIe driver.
+ */
+int rockchip_dw_pcie_pm_ctrl_for_user(struct pci_dev *dev,
+				      enum rockchip_pcie_pm_ctrl_flag flag)
+{
+	struct dw_pcie_rp *pp;
+	struct dw_pcie *pci;
+	struct rockchip_pcie *rockchip;
+	u32 val;
+	int ret;
+
+	if (!dev || !dev->bus || !dev->bus->sysdata)
+		return -EINVAL;
+
+	pp = dev->bus->sysdata;
+	pci = to_dw_pcie_from_pp(pp);
+	rockchip = to_rockchip_pcie(pci);
+
+	switch (flag) {
+	case ROCKCHIP_PCIE_PM_CTRL_RESET:
+		/* Disable LTSSM to bring link down */
+		rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_DISABLE_LTSSM,
+					 PCIE_CLIENT_GENERAL_CONTROL);
+
+		/* Wait for link to go down */
+		msleep(20);
+
+		/* Enable LTSSM enhancement + DLY2 for fast link setup */
+		val = PCIE_LTSSM_ENABLE_ENHANCE | PCIE_LTSSM_APP_DLY2_EN;
+		val = HIWORD_UPDATE_BIT(val);
+		rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+
+		/* Toggle PERST to reset the endpoint */
+		if (rockchip->rst_gpio) {
+			gpiod_set_value_cansleep(rockchip->rst_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(rockchip->rst_gpio, 1);
+		}
+
+		/* Re-enable LTSSM to bring link up */
+		rockchip_pcie_enable_ltssm(rockchip);
+
+		/* Wait for link to come up */
+		ret = readl_relaxed_poll_timeout(
+				rockchip->apb_base + PCIE_CLIENT_LTSSM_STATUS,
+				val, ((val & PCIE_LINKUP) == PCIE_LINKUP &&
+				      (val & PCIE_LTSSM_STATUS_MASK) == PCIE_L0S_ENTRY),
+				10000, 500000);
+		if (ret)
+			dev_warn(pci->dev, "%s: link retrain timeout (ltssm=0x%x)\n",
+				 __func__, val);
+		else
+			dev_info(pci->dev, "%s: link retrained successfully\n",
+				 __func__);
+		break;
+
+	case ROCKCHIP_PCIE_PM_RETRAIN_LINK:
+		/* Simple LTSSM toggle without PERST */
+		rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_DISABLE_LTSSM,
+					 PCIE_CLIENT_GENERAL_CONTROL);
+		msleep(10);
+		rockchip_pcie_enable_ltssm(rockchip);
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(rockchip_dw_pcie_pm_ctrl_for_user);
 
 static const struct of_device_id rockchip_pcie_of_match[] = {
 	{ .compatible = "rockchip,rk3568-pcie", },
