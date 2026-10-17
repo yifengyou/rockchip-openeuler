@@ -2,15 +2,24 @@
 
 set -ex
 
-TARGET_IP="${1:-192.168.33.38}"
+TARGET_IP="${1:-192.168.33.43}"
 TARGET_USER="root"
 TARGET_PASS="admin"
-REMOTE_BOOT="/boot/openeuler"
+REMOTE_DIR="/boot/openeuler"
 
 SSH_CMD="sshpass -p ${TARGET_PASS} ssh ${TARGET_USER}@${TARGET_IP}"
 RSYNC_CMD="sshpass -p ${TARGET_PASS} rsync -avz"
 
-${SSH_CMD} mkdir -p "${REMOTE_BOOT}"
-${RSYNC_CMD} release/Image-6.* "${TARGET_USER}@${TARGET_IP}:${REMOTE_BOOT}/"
-${RSYNC_CMD} release/rk3588-bdy-g98.dtb "${TARGET_USER}@${TARGET_IP}:${REMOTE_BOOT}/"
-${RSYNC_CMD} -P --delete kos/lib/modules/6.* "${TARGET_USER}@${TARGET_IP}:/lib/modules/"
+md5sum release/Image* release/*.dtb
+
+${SSH_CMD} mkdir -p "${REMOTE_DIR}"
+${RSYNC_CMD} release/Image-* "${TARGET_USER}@${TARGET_IP}:${REMOTE_DIR}/"
+${RSYNC_CMD} release/*.dtb              "${TARGET_USER}@${TARGET_IP}:${REMOTE_DIR}/"
+${SSH_CMD} md5sum "${REMOTE_DIR}/*"
+
+${SSH_CMD}   rm -rf /lib/modules/6.*
+${RSYNC_CMD} kos/lib/modules/*           "${TARGET_USER}@${TARGET_IP}:/lib/modules/"
+
+${SSH_CMD} sync
+${SSH_CMD} tree "/boot"
+
