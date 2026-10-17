@@ -1,11 +1,11 @@
-name: bdy g98 OpenEuler OLK6.6
+name: aiot-3588ied OLK-6.6 build
 
 on:
   repository_dispatch:
   workflow_dispatch:
   push:
     branches:
-      - bdy-g98
+      - aiot-3588ied
 
 env:
   TZ: Asia/Shanghai
@@ -60,6 +60,7 @@ jobs:
         run: |
           pwd
           sudo ./kdev-build.sh
+          ls -alh  release/*
 
       - name: List build output
         run: |
@@ -69,20 +70,18 @@ jobs:
       - name: Upload Kernel to Release
         uses: ncipollo/release-action@main
         with:
-          tag: OpenEuler_OLK6.6
+          tag: aiot-3588ied_OLK-6.6
           artifacts: ./release/*
           allowUpdates: true
           removeArtifacts: false
           replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            # BDY G98 OpenEuler OLK6.6
-
-            ## 重要提示
-            > **此发布为中间构建产物，非完整固件！**
-            > **非专业开发人员请勿下载使用**
+            # aiot-3588ied OLK-6.6
 
             ## 免责声明
             - **按原样提供**：镜像不作任何保证，使用风险自负
             - **无官方关联**：主板厂家和瑞星微无任何关联、无任何商业关联
             - **安全提示**：请及时更新补丁、修改默认密码、配置防火墙
+
+
