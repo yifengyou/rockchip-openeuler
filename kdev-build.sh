@@ -2,8 +2,8 @@
 
 set -ex
 WORKDIR=`pwd`
-DEFCONFIG="aiot_3588ied_defconfig"
-TARGETDTB="rk3588-aiot-3588ied.dtb"
+DEFCONFIG="aiot_3588a_defconfig"
+TARGETDTB="rk3588-aiot-3588a.dtb"
 
 mkdir -p ${WORKDIR}/release
 # build kernel Image
